@@ -1,0 +1,242 @@
+<?php
+
+/**
+ * Implementation of hook_menu()
+ *
+ * Creates callback for login URL.
+ */
+function umass_auth_menu() {
+  $items['login'] = array(
+    'page callback' => 'umass_auth_login_redirect',
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('access content'),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_menu_site_status_alter()
+ */
+function umass_auth_menu_site_status_alter(&$menu_site_status, $path) {
+	if($menu_site_status == MENU_SITE_OFFLINE && user_is_anonymous() && $path == "login") {
+		$menu_site_status = MENU_SITE_ONLINE;
+	}
+}
+
+/**
+ * /login callback
+ *
+ * Redirects user to to the SP login page with a return URL of /shib_login/node to insure that proper shib_auth authentication functions are called.
+ * Assumes a shibboleth login URL of /Shibboleth.sso/Login. 
+ */
+function umass_auth_login_redirect() {
+  drupal_goto('https://' . $_SERVER['HTTP_HOST'] . '/Shibboleth.sso/Login?target=https://' . $_SERVER['HTTP_HOST'] . substr($_SERVER['REQUEST_URI'], 0, count($_SERVER['REQUEST_URI']) - 7) . '/shib_login/node');
+}
+
+/**
+ * Implementation of hook_form_BASE_FORM_ID_alter()
+ *
+ * Simplifies the user creation form by hiding several fields.
+ */
+function umass_auth_form_user_register_form_alter(&$form, &$form_state, $form_id) {
+  $form['account']['pass']['#value'] = user_password();
+  $form['account']['pass']['#type'] = 'hidden';
+  $form['account']['roles']['2']['#type'] = 'hidden';
+  $form['account']['notify']['#type'] = 'hidden';
+  $form['account']['notify']['#value'] = 0;
+  $form['account']['status']['#type'] = 'hidden';
+  $form['account']['status']['#value'] = 1;
+  $form['account']['name']['#title'] = 'NetID';
+  $form['account']['name']['#description'] = 'Enter the user\'s OIT NetID.  Make sure to match exactly.';
+  $form['account']['mail']['#description'] = ' A valid e-mail address. All e-mails from the system will be sent to this address.';
+  $form['person']['shib_provision']['#type'] = 'hidden';
+  $form['person']['shib_provision']['#value'] = 1;
+}
+
+/**
+ * Implementation of hook_enable()
+ *
+ * Configures shib_auth and shib_provision settings to specific UMass defaults.
+ */
+function umass_auth_enable() {
+  variable_set('shib_provision_unique_identifier', 'name');
+  variable_set('shib_auth_enable_custom_mail', 1);
+  variable_set('shib_auth_email_variable', 'eppn');
+  variable_set('user_register', 0);
+  variable_set('shib_auth_auto_destroy_session', 0);
+  variable_set('shib_auth_disable_account_registration', 1);
+  variable_set('shib_auth_full_handler_url', '/Shibboleth.sso/Login');
+  variable_set('shib_auth_full_logout_url', '/Shibboleth.sso/Logout');
+  variable_set('shib_auth_force_https', 1);
+  variable_set('shib_auth_link_text', 'NetId Login');
+  variable_set('shib_auth_logout_url', 'https://webauth.oit.umass.edu/Logout');
+
+  /* Disable insecure PHP Filter module */
+  module_disable(array('php'), TRUE);
+}
+
+/**
+ * Implements hook_modules_enabled()
+ *
+ * Disables the PHP Filter module if it ever becomes enabled.
+ */
+function umass_auth_modules_enabled($modules) {
+  if (in_array('php', $modules)) {
+    module_disable(array('php'));
+  }
+}
+
+/**
+ * Implementation of hook_form_BASE_FORM_ID_alter()
+ *
+ * Disables public account registration.
+ */
+function umass_auth_form_user_admin_settings_alter(&$form, &$form_state, $form_id) {
+ 
+  //$form['mixed_mode']['enabled'] = array(
+    //'#type' => 'radios',
+    //'#title' => t('Mixed mode'),
+    //'#default_value'=> 0,
+    //'#options' => array(0 => t('disabled'), 1 => t('enabled')),
+   // '#description' => t('When administrator logged in, mix_mode would be enabled'),
+ // );
+  $form['mixed_mode']['#type'] = 'radios';
+  $form['mixed_mode']['#title'] = t('Mixed mode');
+  $form['mixed_mode']['#default_value'] = 0;
+  $form['mixed_mode']['#options'] = array(0 => t('disabled'), 1 => t('enabled'));
+  $form['mixed_mode']['#submit'] = array('umass_auth_submit');
+  $form['mixed_mode']['#description'] = t('When administrator logged in, mix_mode would be enabled mixed mode');
+
+  $form['registration_cancellation']['user_register']['#disabled'] = 1;
+  $form['registration_cancellation']['user_register']['#value'] = 0;
+ 
+  print_r($form['mixed_mode']['#submit']);
+
+  dpm($form);
+}
+
+function umass_auth_submit($form, &$form_state) {
+  drupal_set_message(t('submit function works')); 
+ 
+  if($form['mixed_mode']['#options'] == 1){
+    variable_set('shib_mixed_mode', 1);
+  }else {
+    variable_set('shib_mixed_mode', 0);
+  }
+  print_r($form['mixed_mode']['#options']);
+  drupal_exit();
+}
+
+/**
+ * Implementation of hook_form_BASE_FORM_ID_alter()
+ *
+ * Simplifies the user editing form by hiding several fields.
+ */
+function umass_auth_form_user_profile_form_alter(&$form, &$form_state, $form_id) {
+  unset($form['account']['pass']);
+  unset($form['account']['current_pass']);
+  $form['account']['current_pass_required_values']['#value'] = array();
+  $form['person']['shib_provision']['#type'] = 'hidden';
+  $form['person']['shib_provision']['#value'] = 1;
+}
+
+/**
+ * Implementation of hook_form_BASE_FORM_ID_alter()
+ *
+ * Disables the password retrieval form.
+ */
+function umass_auth_form_user_pass_alter(&$form, &$form_state, $form_id) {
+  $form['name']['#disabled'] = TRUE;
+  $form['name']['#description'] = t('Disabled by UMass Authentication module.');
+  $form['actions']['#disabled'] = TRUE;
+}
+
+/**
+ * Implementation of hook_form_BASE_FORM_ID_alter()
+ *
+ * Adds prefix to the login form explaining the form is only for local authentication and adds a link to Shibboleth authentication.
+ */
+function umass_auth_form_user_login_alter(&$form, &$form_state, $form_id) {
+  // Always redirect to HTTPS if not enabled already
+  if (!(array_key_exists('HTTPS', $_SERVER) && $_SERVER['HTTPS'] == 'on')) {
+    drupal_goto('https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'], array('https' => TRUE, 'absolute' => TRUE));
+  }
+  $form['#prefix'] = t('This form is for local account authentication only. To log on with your OIT NetId please click <a href="'
+  . 'https://' . $_SERVER['HTTP_HOST'] . '/Shibboleth.sso/Login?target=https://' . $_SERVER['HTTP_HOST'] . substr($_SERVER['REQUEST_URI'], 0, count($_SERVER['REQUEST_URI']) - 6) . '/shib_login/node'
+  . '">here</a>.');
+}
+
+/**
+ * Implements hook_user_login()
+ *
+ * Add user information to session information, ensuring persistence of certain
+ * variables across the shibboleth authentication process and load balancing.
+ */
+function umass_auth_user_login(&$edit, $account) {
+  /* From /etc/shibboleth/attribute-map.xml */
+  $attributes = array(
+    'eppn',
+    'affiliation',
+    'entitlement',
+    'targeted-id',
+    'persistent-id',
+    'eduPersonPrimaryAffiliation',
+    'eduPersonAffiliation',
+    'uid',
+    'mail',
+    'attribute1',
+    'middleName',
+    'fcPersonAffiliation',
+    'eduPersonAffiliation',
+    'sn',
+    'givenName',
+    'UMAemployeeID',
+    'UMAunionCode',
+    'departmentNumber',
+  );
+  /* Copy $_SERVER attributes to $_SESSION */
+  foreach ($attributes as $attr) {
+    if (array_key_exists($attr, $_SERVER)) {
+      $_SESSION[$attr] = $_SERVER[$attr];
+    }
+  }
+}
+
+/**
+ * Alter modules form, restricting certain modules.
+ *
+ * Note that these will become available again when umass_auth is disabled.
+ *
+ * Implements hook_form_FORM_ID_alter()
+ */
+function umass_auth_form_system_modules_alter(&$form, &$form_state, $form_id) {
+  // Grey out checkboxes on select modules
+  $restrict_mods = array(
+    /* 'Category (as seen on /admin/modules form)' = array(
+     *    'module_one (as listed by drush)',
+     *    'module_two',
+     *    ...
+     *    ),
+     */
+    'Core' => array(
+      'php',
+      ),
+    'OIT' => array(
+      'umass_auth',
+      ),
+  );
+  foreach ($restrict_mods as $category => $list) {
+    foreach ($list as $module) {
+      $form['modules'][$category][$module]['enable']['#disabled'] = 'disabled';
+      if (!array_key_exists('description', $form['modules'][$category][$module])) {
+        $form['modules'][$category][$module]['description'] = array(
+          '#markup' => '',
+          );
+      }
+      $form['modules'][$category][$module]['description']['#markup'] .=
+    '<p><em>Restricted by UMass Auth module</em></p>';
+    }
+  }
+}
+

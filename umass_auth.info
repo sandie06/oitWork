@@ -1,0 +1,7 @@
+name = UMass Auth
+description = Customized OIT/UMass Shibboleth Integration
+package = OIT
+core = 7.x
+dependencies[] = shib_auth
+dependencies[] = shib_provision
+version = 1.2.1

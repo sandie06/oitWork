@@ -1,0 +1,8 @@
+<?php
+/**
+ * Disable destroy Drupal session when Shibboleth session expires.
+ */
+function umass_auth_update_7100() {
+  variable_set('shib_auth_auto_destroy_session', 0);
+}
+
